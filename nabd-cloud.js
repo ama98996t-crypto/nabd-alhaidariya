@@ -22,7 +22,7 @@ async function enter(){
  remoteRows.forEach(r=>{if(data[r.category])data[r.category].push({...r.payload,id:r.id,_created_by:r.created_by,_assigned_to:r.assigned_to})});
  gate.remove();
  document.querySelector('.shell').style.display='';
- if(role==='worker'){
+ if(role!=='admin'){
   document.querySelectorAll('.nav button[data-page="assets"],.nav button[data-page="inventory"],.nav button[data-page="reports"]').forEach(x=>x.remove());
   const foot=document.querySelector('.side-foot');if(foot)foot.textContent='حساب موظف | البيانات محفوظة سحابياً';
   const oldTable=table;table=function(key,rows){return oldTable(key,rows).replace(/<button class="btn danger small"[^>]*>حذف<\/button>/g,'')}
@@ -39,7 +39,7 @@ async function authInit(){
 window.nabdCloud={client,refresh:async()=>{const {data,error}=await client.from('nabd_records').select('*').order('created_at',{ascending:false});if(error)throw error;remoteRows=data||[];return remoteRows}};
 save=async function(){
  try{
-  const categories=Object.keys(data);
+  const categories=role==='worker'?['maintenance','cleaning']:Object.keys(data);
   for(const category of categories){
    const current=data[category]||[];
    const rows=current.map(r=>{const payload={...r};delete payload.id;delete payload._created_by;delete payload._assigned_to;return {id:r.id,category,payload,status:r.status||r.condition||null,assigned_to:r._assigned_to||null,created_by:r._created_by||user.id,updated_at:new Date().toISOString()}});
