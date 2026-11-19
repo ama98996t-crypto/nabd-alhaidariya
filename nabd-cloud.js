@@ -38,7 +38,7 @@ async function authInit(){
   remoteRows=rows||[];data={maintenance:[],cleaning:[],assets:[],inventory:[]};
   remoteRows.forEach(r=>{if(data[r.category])data[r.category].push({...r.payload,id:r.id,_created_by:r.created_by,_assigned_to:r.assigned_to})});
   const oldTable=table;table=function(key,rows){return oldTable(key,rows).replace(/<button class="btn secondary small"[^>]*>تعديل<\\/button>/g,'').replace(/<button class="btn danger small"[^>]*>حذف<\\/button>/g,'')};
-  render();const top=document.querySelector('.top');if(top){const b=document.createElement('button');b.className='btn secondary small';b.textContent='تحديث';b.onclick=async()=>{const {data,error}=await client.from('nabd_records').select('*').order('created_at',{ascending:false});if(error){alert(error.message);return}remoteRows=data||[];data.forEach?.(()=>{});window.location.reload()};top.appendChild(b)}
+  render();const top=document.querySelector('.top');if(top){const b=document.createElement('button');b.className='btn secondary small';b.textContent='تحديث';b.onclick=async()=>{const {data,error}=await client.from('nabd_records').select('*').order('created_at',{ascending:false});if(error){alert(error.message);return}remoteRows=data||[];window.location.reload()};top.appendChild(b)}
   return;
  }
  document.querySelector('.shell').style.display='none';
