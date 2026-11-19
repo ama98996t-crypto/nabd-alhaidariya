@@ -31,6 +31,16 @@ async function enter(){
  const top=document.querySelector('.top');if(top){const s=document.createElement('small');s.textContent=(pd.display_name||user.email)+' · '+(role==='admin'?'مدير':role==='supervisor'?'مشرف':'موظف');top.appendChild(s)}
 }
 async function authInit(){
+ if(!isAdminPage){
+  gate.remove();document.querySelector('.shell').style.display='';role='public';
+  const {data:rows,error}=await client.from('nabd_records').select('*').order('created_at',{ascending:false});
+  if(error){document.getElementById('app').innerHTML='<div class="empty">تعذر تحميل السجلات: '+error.message+'</div>';return}
+  remoteRows=rows||[];data={maintenance:[],cleaning:[],assets:[],inventory:[]};
+  remoteRows.forEach(r=>{if(data[r.category])data[r.category].push({...r.payload,id:r.id,_created_by:r.created_by,_assigned_to:r.assigned_to})});
+  const oldTable=table;table=function(key,rows){return oldTable(key,rows).replace(/<button class="btn secondary small"[^>]*>تعديل<\\/button>/g,'').replace(/<button class="btn danger small"[^>]*>حذف<\\/button>/g,'')};
+  render();const top=document.querySelector('.top');if(top){const b=document.createElement('button');b.className='btn secondary small';b.textContent='تحديث';b.onclick=async()=>{const {data,error}=await client.from('nabd_records').select('*').order('created_at',{ascending:false});if(error){alert(error.message);return}remoteRows=data||[];data.forEach?.(()=>{});window.location.reload()};top.appendChild(b)}
+  return;
+ }
  document.querySelector('.shell').style.display='none';
  document.getElementById('gateLogin').onclick=async()=>{msg('جارٍ تسجيل الدخول...');const {data,error}=await client.auth.signInWithPassword({email:document.getElementById('gateEmail').value.trim(),password:document.getElementById('gatePass').value});if(error){msg(error.message);return}user=data.user;await enter()};
  document.getElementById('gateSignup').onclick=async()=>{msg('جارٍ إنشاء الحساب...');const {data,error}=await client.auth.signUp({email:document.getElementById('gateEmail').value.trim(),password:document.getElementById('gatePass').value,options:{data:{display_name:document.getElementById('gateName').value.trim()}}});if(error){msg(error.message);return}if(data.session){user=data.user;await enter()}else msg('تم إرسال رسالة تأكيد إلى بريدك. أكّد البريد ثم سجّل الدخول.')};
@@ -39,34 +49,32 @@ async function authInit(){
 window.nabdCloud={client,refresh:async()=>{const {data,error}=await client.from('nabd_records').select('*').order('created_at',{ascending:false});if(error)throw error;remoteRows=data||[];return remoteRows}};
 save=async function(){
  try{
-  const categories=role==='worker'?['maintenance','cleaning']:Object.keys(data);
-  for(const category of categories){
-   const current=data[category]||[];
-   const oldRows=remoteRows.filter(r=>r.category===category);
-   const oldById=new Map(oldRows.map(r=>[r.id,r]));
-   const rows=current.filter(r=>{
-    const old=oldById.get(r.id);
-    const payload={...r};delete payload.id;delete payload._created_by;delete payload._assigned_to;
-    return !old || JSON.stringify(old.payload)!==JSON.stringify(payload) || old.status!==(r.status||r.condition||null) || old.assigned_to!==(r._assigned_to||null);
-   }).map(r=>{const payload={...r};delete payload.id;delete payload._created_by;delete payload._assigned_to;return {id:r.id,category,payload,status:r.status||r.condition||null,assigned_to:r._assigned_to||null,created_by:r._created_by||user.id,updated_at:new Date().toISOString()}});
-   if(rows.length){const {error}=await client.from('nabd_records').upsert(rows,{onConflict:'id'});if(error)throw error}
-   if(role==='admin'){
-    const now=current.map(r=>r.id),gone=oldRows.map(r=>r.id).filter(id=>!now.includes(id));
-    if(gone.length){const {error}=await client.from('nabd_records').delete().in('id',gone);if(error)throw error}
+  if(role==='public'){
+   for(const category of ['maintenance','cleaning']){
+    const current=data[category]||[];
+    const fresh=current.filter(r=>!remoteRows.some(old=>old.id===r.id));
+    const rows=fresh.map(r=>{const payload={...r};delete payload.id;delete payload._created_by;delete payload._assigned_to;return {category,payload,status:r.status||null,created_by:null,updated_at:new Date().toISOString()}});
+    if(rows.length){const {error}=await client.from('nabd_records').insert(rows);if(error)throw error}
+   }
+  } else {
+   const categories=role==='worker'?['maintenance','cleaning']:Object.keys(data);
+   for(const category of categories){
+    const current=data[category]||[],oldRows=remoteRows.filter(r=>r.category===category),oldById=new Map(oldRows.map(r=>[r.id,r]));
+    const rows=current.filter(r=>{const old=oldById.get(r.id);const payload={...r};delete payload.id;delete payload._created_by;delete payload._assigned_to;return !old||JSON.stringify(old.payload)!==JSON.stringify(payload)||old.status!==(r.status||r.condition||null)||old.assigned_to!==(r._assigned_to||null)}).map(r=>{const payload={...r};delete payload.id;delete payload._created_by;delete payload._assigned_to;return {id:r.id,category,payload,status:r.status||r.condition||null,assigned_to:r._assigned_to||null,created_by:r._created_by||user.id,updated_at:new Date().toISOString()}});
+    if(rows.length){const {error}=await client.from('nabd_records').upsert(rows,{onConflict:'id'});if(error)throw error}
+    if(role==='admin'){const now=current.map(r=>r.id),gone=oldRows.map(r=>r.id).filter(id=>!now.includes(id));if(gone.length){const {error}=await client.from('nabd_records').delete().in('id',gone);if(error)throw error}}
    }
   }
-  const {data:rows,error}=await client.from('nabd_records').select('*').order('created_at',{ascending:false});if(error)throw error;
-  remoteRows=rows||[];
-  render();
- }catch(e){alert('لم يتم حفظ التغييرات سحابياً: '+e.message);render()}
+  const {data:rows,error}=await client.from('nabd_records').select('*').order('created_at',{ascending:false});if(error)throw error;remoteRows=rows||[];data={maintenance:[],cleaning:[],assets:[],inventory:[]};remoteRows.forEach(r=>{if(data[r.category])data[r.category].push({...r.payload,id:r.id,_created_by:r.created_by,_assigned_to:r.assigned_to})});render();
+ }catch(e){alert('لم يتم حفظ السجل: '+e.message);render()}
 };
 const originalSubmit=document.getElementById('recordForm').onsubmit;
 document.getElementById('recordForm').onsubmit=async e=>{
  e.preventDefault();let key=editing.key,fd=new FormData(e.target),obj=Object.fromEntries(fd.entries());
  const photo=document.getElementById('recordPhoto')?.files?.[0];
- if(photo){if(!['image/jpeg','image/png','image/webp'].includes(photo.type)||photo.size>5242880){alert('الصورة يجب أن تكون JPG أو PNG أو WEBP وبحجم لا يتجاوز 5 ميغابايت');return}const path=user.id+'/'+crypto.randomUUID()+'-'+photo.name.replace(/[^a-zA-Z0-9._-]/g,'_');const {error:upErr}=await client.storage.from('nabd-attachments').upload(path,photo,{contentType:photo.type,upsert:false});if(upErr){alert('تعذر رفع الصورة: '+upErr.message);return}obj.photo_path=path}
+ if(photo){if(!['image/jpeg','image/png','image/webp'].includes(photo.type)||photo.size>5242880){alert('الصورة يجب أن تكون JPG أو PNG أو WEBP وبحجم لا يتجاوز 5 ميغابايت');return}const path=(role==='public'?'public':user.id)+'/'+crypto.randomUUID()+'-'+photo.name.replace(/[^a-zA-Z0-9._-]/g,'_');const {error:upErr}=await client.storage.from('nabd-attachments').upload(path,photo,{contentType:photo.type,upsert:false});if(upErr){alert('تعذر رفع الصورة: '+upErr.message);return}obj.photo_path=path}
  if(editing.id){let idx=data[key].findIndex(x=>x.id===editing.id);data[key][idx]={...data[key][idx],...obj,updatedAt:new Date().toISOString()}}
- else data[key].push({id:crypto.randomUUID(),...obj,createdAt:new Date().toISOString(),_created_by:user.id});
+ else data[key].push({id:crypto.randomUUID(),...obj,createdAt:new Date().toISOString(),_created_by:role==='public'?null:user.id});
  closeModal();await save();
 };
 removeRecord=async function(key,id){if(role!=='admin'){alert('حذف السجلات متاح للمدير فقط.');return}if(!confirm('متأكد من حذف هذا السجل؟'))return;data[key]=data[key].filter(x=>x.id!==id);await save()};
