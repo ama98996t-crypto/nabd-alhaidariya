@@ -25,7 +25,7 @@ async function enter(){
  if(role!=='admin'){
   document.querySelectorAll('.nav button[data-page="assets"],.nav button[data-page="inventory"],.nav button[data-page="reports"]').forEach(x=>x.remove());
   const foot=document.querySelector('.side-foot');if(foot)foot.textContent='حساب موظف | البيانات محفوظة سحابياً';
-  const oldTable=table;table=function(key,rows){return oldTable(key,rows).replace(/<button class="btn danger small"[^>]*>حذف<\/button>/g,'')}
+  const oldTable=table;table=function(key,rows){const visible=role==='worker'?rows.filter(r=>r._created_by===user.id||r._assigned_to===user.id):rows;return oldTable(key,visible).replace(/<button class="btn danger small"[^>]*>حذف<\/button>/g,'')}
  }
  render();
  const top=document.querySelector('.top');if(top){const s=document.createElement('small');s.textContent=(pd.display_name||user.email)+' · '+(role==='admin'?'مدير':role==='supervisor'?'مشرف':'موظف');top.appendChild(s)}
@@ -42,12 +42,18 @@ save=async function(){
   const categories=role==='worker'?['maintenance','cleaning']:Object.keys(data);
   for(const category of categories){
    const current=data[category]||[];
-   const rows=current.map(r=>{const payload={...r};delete payload.id;delete payload._created_by;delete payload._assigned_to;return {id:r.id,category,payload,status:r.status||r.condition||null,assigned_to:r._assigned_to||null,created_by:r._created_by||user.id,updated_at:new Date().toISOString()}});
+   const oldRows=remoteRows.filter(r=>r.category===category);
+   const oldById=new Map(oldRows.map(r=>[r.id,r]));
+   const rows=current.filter(r=>{
+    const old=oldById.get(r.id);
+    const payload={...r};delete payload.id;delete payload._created_by;delete payload._assigned_to;
+    return !old || JSON.stringify(old.payload)!==JSON.stringify(payload) || old.status!==(r.status||r.condition||null) || old.assigned_to!==(r._assigned_to||null);
+   }).map(r=>{const payload={...r};delete payload.id;delete payload._created_by;delete payload._assigned_to;return {id:r.id,category,payload,status:r.status||r.condition||null,assigned_to:r._assigned_to||null,created_by:r._created_by||user.id,updated_at:new Date().toISOString()}});
    if(rows.length){const {error}=await client.from('nabd_records').upsert(rows,{onConflict:'id'});if(error)throw error}
-   const old=remoteRows.filter(r=>r.category===category).map(r=>r.id);
-   const now=current.map(r=>r.id);
-   const gone=old.filter(id=>!now.includes(id));
-   if(gone.length){const {error}=await client.from('nabd_records').delete().in('id',gone);if(error)throw error}
+   if(role==='admin'){
+    const now=current.map(r=>r.id),gone=oldRows.map(r=>r.id).filter(id=>!now.includes(id));
+    if(gone.length){const {error}=await client.from('nabd_records').delete().in('id',gone);if(error)throw error}
+   }
   }
   const {data:rows,error}=await client.from('nabd_records').select('*').order('created_at',{ascending:false});if(error)throw error;
   remoteRows=rows||[];
