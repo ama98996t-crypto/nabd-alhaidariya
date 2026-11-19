@@ -63,6 +63,8 @@ save=async function(){
 const originalSubmit=document.getElementById('recordForm').onsubmit;
 document.getElementById('recordForm').onsubmit=async e=>{
  e.preventDefault();let key=editing.key,fd=new FormData(e.target),obj=Object.fromEntries(fd.entries());
+ const photo=document.getElementById('recordPhoto')?.files?.[0];
+ if(photo){if(!['image/jpeg','image/png','image/webp'].includes(photo.type)||photo.size>5242880){alert('الصورة يجب أن تكون JPG أو PNG أو WEBP وبحجم لا يتجاوز 5 ميغابايت');return}const path=user.id+'/'+crypto.randomUUID()+'-'+photo.name.replace(/[^a-zA-Z0-9._-]/g,'_');const {error:upErr}=await client.storage.from('nabd-attachments').upload(path,photo,{contentType:photo.type,upsert:false});if(upErr){alert('تعذر رفع الصورة: '+upErr.message);return}obj.photo_path=path}
  if(editing.id){let idx=data[key].findIndex(x=>x.id===editing.id);data[key][idx]={...data[key][idx],...obj,updatedAt:new Date().toISOString()}}
  else data[key].push({id:crypto.randomUUID(),...obj,createdAt:new Date().toISOString(),_created_by:user.id});
  closeModal();await save();
